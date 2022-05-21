@@ -42,6 +42,8 @@ def getHistoricalTrades(market_name,resolution:int,start_time):
         response = requests.get("https://ftx.com/api/markets/"+market_name+"/candles", params = data)
         
         result = response.json()["result"]
+        print("length of result: " + str(len(result)))
+        print("result[0]: " + str(result[0]))
         finalResult.insert(0,result)
         firstTime = convertSQLTimeToFTXTime(result[0]["time"])
         print("first time: " + str(firstTime))
@@ -71,9 +73,9 @@ def getMostRecentTimestamp(conn,tableName):
 # if there is a previous record, add one to the start time requested
 # as the API will take the next start time after that
 # if the table is empty, use the defaultStartDate
-def getStartTime(resultTime):
+def getStartTime(resultTime,resolution):
      defaultStartTime = int(time.mktime(datetime.datetime.strptime(defaultStartDate, "%Y-%m-%d").timetuple()))
-     return resultTime + 1  if resultTime else defaultStartTime
+     return resultTime + resolution  if resultTime else defaultStartTime
 
 def insertHistoricalTradesToSQL(conn,result,tableName):
     numRecords = len(result)
@@ -111,8 +113,8 @@ conn = connectPSQL()
 lastStartTimeMixed = getMostRecentTimestamp(conn,tableName1)
 lastStartTimeHistorical = getMostRecentTimestamp(conn,tableName2)
 
-newStartTimeMixed = getStartTime(lastStartTimeMixed)
-newStartTimeHistorical = getStartTime(lastStartTimeHistorical)
+newStartTimeMixed = getStartTime(lastStartTimeMixed,resolution = 15)
+newStartTimeHistorical = getStartTime(lastStartTimeHistorical,resolution=15)
 
 print("newStartTimeMixed: " + str(newStartTimeMixed) + ", newStartTimeHistorical: " + str(newStartTimeHistorical))
 

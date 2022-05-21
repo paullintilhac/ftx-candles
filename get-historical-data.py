@@ -117,8 +117,8 @@ def insertStreamingTradesToSQL(conn,result,tableName):
         row = result[i]
         tradeTime = row["time"].split("T")
         print("made it here")
-        startDate = startDateTime[0]
-        startTime = startDateTime[1].split("+")[0]
+        startDate = tradeTime[0]
+        startTime = tradeTime[1].split("+")[0]
         parseTradeTime = time.mktime(datetime.datetime.strptime(startDate+" " + startTime, "%Y-%m-%d %H:%M:%S.%f").timetuple())
         price = str(row["price"])+"::decimal(32)"
         size = str(row["size"])+"::decimal(32)"

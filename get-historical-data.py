@@ -9,6 +9,7 @@ import itertools
 import websocket
 import _thread
 import time
+import json
 
 tableNameMixed = "highres_mixed"
 tableNameHist = "highres_historical"
@@ -115,6 +116,7 @@ def insertStreamingTradesToSQL(conn,result,tableName):
     for i in range(numRecords):
         row = result[i]
         tradeTime = row["time"].split("T")
+        print("made it here")
         startDate = startDateTime[0]
         startTime = startDateTime[1].split("+")[0]
         parseTradeTime = time.mktime(datetime.datetime.strptime(startDate+" " + startTime, "%Y-%m-%d %H:%M:%S.%f").timetuple())
@@ -163,34 +165,36 @@ def updateSQL(conn,resolution,market_name):
 
 # Define WebSocket callback functions
 def ws_message(ws, message):
-    print("ws message received: " + str(message))
-    data = message["data"]
+    data = json.loads(message)["data"]
     insertStreamingTradesToSQL(conn,data,tableNameStream)
 
 def ws_open(ws):
     print("opening websocket")
-
     openString = '{"op": "subscribe", "channel": "trades", "market": "BTC-PERP"}'
-
     ws.send(openString)
 
-def ws_close(ws):
-    print("websocket closed")
-    ws.send('{"op": "unsubscribe", "channel": "trades", "market": "' + market_name + '"}')
-
-def on_ping(ws):
-    print("ping")
-
-def on_pong(ws):
-    print("pong")
+def on_error(ws, err):
+    print("error encountered: ", err)
 
 def ws_thread():
-    ws = websocket.WebSocketApp("wss://ftx.com/ws/", on_open = ws_open, on_message = ws_message,on_ping=on_ping,on_pong=on_pong)
+    ws = websocket.WebSocketApp("wss://ftx.com/ws/", on_open = ws_open, on_message = ws_message, on_error = on_error)
     print("websocket object: "  + str(dir(ws)))
     ws.run_forever(ping_interval=15,ping_timeout=10)
 
+
 # Continue other (non WebSocket) tasks in the main thread
 
+async def consumer_handler(websocket: WebSocketClientProtocol) -> None:
+    print("running consumer handler")
+    async for message in websocket:
+        print("message: " + str(message))
+
+async def consumer() -> None:
+    async with websockets.connect("wss://ws.kraken.com/") as websocket:
+        await consumer_handler(websocket)
+
+# if __name__ == "main":
+#     asyncio.run(consumer())
 conn = connectPSQL()
 
 updateSQL(conn, resolution = 15,market_name ="BTC-PERP")

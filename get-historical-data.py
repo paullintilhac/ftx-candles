@@ -4,8 +4,13 @@ import datetime
 import psycopg2
 from websockets import WebSocketClientProtocol
 import asyncio
+import numpy as np
+import itertools
 
-tableName = "highres5"
+tableName1 = "highres_mixed"
+tableName2 = "highres_historical"
+defaultStartDate = "2022-05-18"
+
 def connectPSQL():
     conn = psycopg2.connect(database="ftxtest", host='127.0.0.1')
     #Creating a cursor object using the cursor() method
@@ -23,27 +28,54 @@ def getHistoricalTrades(market_name,resolution:int,start_time):
     end_time = int(time.mktime(datetime.datetime.now().timetuple()))
     print("start time: " + str(start_time) + ", end time: " + str(end_time))
     
-    data = {
-        "resolution": resolution,
-        "start_time": start_time,
-        "end_time": end_time
-    }
-    response = requests.get("https://ftx.com/api/markets/"+market_name+"/candles", params = data)
-    
-    result = response.json()["result"]
-    #print("result: " + str(result))
-    return result
+    finalResult = []
+    firstTime = end_time
+    count=1
+    while firstTime!=start_time:
+        print("page number: " + str(count))
+        print("start time: " + str(start_time) + ", end time: " + str(end_time))
+        data = {
+            "resolution": resolution,
+            "start_time": start_time,
+            "end_time": end_time
+        }
+        response = requests.get("https://ftx.com/api/markets/"+market_name+"/candles", params = data)
+        
+        result = response.json()["result"]
+        finalResult.insert(0,result)
+        firstTime = convertSQLTimeToFTXTime(result[0]["time"])
+        print("first time: " + str(firstTime))
+        end_time = firstTime-resolution
+        count+=1
 
-def getMostRecentTimestamp(conn):
+    finalResult = list(itertools.chain(*finalResult))
+
+    #print("result: " + str(result))
+    return finalResult
+
+def convertSQLTimeToFTXTime(sqlTime):
+    return int(sqlTime/1000)
+
+def getMostRecentTimestamp(conn,tableName):
     cursor = conn.cursor()
     cursor.execute("select max(time) from " + tableName)
     result = cursor.fetchone()[0]
-    # print("result: " + str(result))
-    resultTime = int(result/1000)
-    # print("resultTime: " + str(resultTime))
+    print("result: " + str(result))
+    resultTime = None
+    if result is not None:
+        resultTime = convertSQLTimeToFTXTime(result)
+    #print("resultTime: " + str(resultTime))
     return resultTime
 
-def insertHistoricalTradesToSQL(conn,result):
+
+# if there is a previous record, add one to the start time requested
+# as the API will take the next start time after that
+# if the table is empty, use the defaultStartDate
+def getStartTime(resultTime):
+     defaultStartTime = int(time.mktime(datetime.datetime.strptime(defaultStartDate, "%Y-%m-%d").timetuple()))
+     return resultTime + 1  if resultTime else defaultStartTime
+
+def insertHistoricalTradesToSQL(conn,result,tableName):
     numRecords = len(result)
     cursor = conn.cursor()
     print("numRecords: " + str(numRecords))
@@ -55,25 +87,49 @@ def insertHistoricalTradesToSQL(conn,result):
         newDateTime = str(startDate) + " " + str(startTime)
         startTime = "to_timestamp('"+newDateTime+"', 'YYYY-MM-DD HH24:MI:SS')"
         print("startTime: " + startTime)
+
         time = str(int(row["time"]))+"::bigint"
         open = str(row["open"])+"::decimal(32)"
         close = str(row["close"])+"::decimal(32)"
         high = str(row["high"])+"::decimal(32)"
         low = str(row["low"])+"::decimal(32)"
         vol = str(row["volume"])+"::decimal(32)"
+
+        # insert into table populated by historical API + streaming API
         valueString = ",".join([startTime,time,open,close,high,low,vol])
-        queryString = "INSERT INTO highres5 (startTime,time, open,close,high,low,volume) values (" +valueString + ") if startTime> select max(startTime) from "+tableName 
+        queryString = "INSERT INTO " + tableName + " (startTime,time, open,close,high,low,volume) values (" +valueString + ") "
         cursor.execute(queryString)
         conn.commit()
 
-#asyncio.run(consumer())
+# asyncio.run(consumer())
 
 conn = connectPSQL()
 
-lastStartTime = getMostRecentTimestamp(conn)
-result = getHistoricalTrades("BTC-PERP",15,lastStartTime)
+# note the +1 will never move it to the next candle
+# because it only adds 1 second and the min resolution is 15 seconds
 
-insertHistoricalTradesToSQL(conn,result)
+lastStartTimeMixed = getMostRecentTimestamp(conn,tableName1)
+lastStartTimeHistorical = getMostRecentTimestamp(conn,tableName2)
 
+newStartTimeMixed = getStartTime(lastStartTimeMixed)
+newStartTimeHistorical = getStartTime(lastStartTimeHistorical)
+
+print("newStartTimeMixed: " + str(newStartTimeMixed) + ", newStartTimeHistorical: " + str(newStartTimeHistorical))
+
+# we only want to fetch records once, so take the min of the start times and use that
+earlierStartTime = np.min([newStartTimeHistorical,newStartTimeMixed])
+result = getHistoricalTrades("BTC-PERP",15,earlierStartTime)
+
+print("length of result: " + str(len(result)) )
+print("len of result[0]: " + str(len(result[0])))
+startTimes = [convertSQLTimeToFTXTime(r["time"]) for r in result]
+
+print("length of startTimes: " + str(len(startTimes)) + ", startTimes[0]: " + str(startTimes[0]) +", startTimes[len(startTimes)-1]: "+str(startTimes[len(startTimes)-1]))
+startIndMixed = np.where(startTimes==earlierStartTime)[0][0]
+startIndHistorical = np.where(startTimes==earlierStartTime)[0][0]
+
+print("startIndMixed: " +str(startIndMixed) + ", startIndHistorical: " + str(startIndHistorical))
+insertHistoricalTradesToSQL(conn,result[startIndMixed:],tableName1)
+insertHistoricalTradesToSQL(conn,result[startIndHistorical:],tableName2)
 
 conn.close()

@@ -103,35 +103,39 @@ def insertHistoricalTradesToSQL(conn,result,tableName):
         cursor.execute(queryString)
         conn.commit()
 
+
+def updateSQL(conn,resolution):
+
+    # note the +1 will never move it to the next candle
+    # because it only adds 1 second and the min resolution is 15 seconds
+
+    lastStartTimeMixed = getMostRecentTimestamp(conn,tableName1)
+    lastStartTimeHistorical = getMostRecentTimestamp(conn,tableName2)
+
+    newStartTimeMixed = getStartTime(lastStartTimeMixed,resolution = resolution)
+    newStartTimeHistorical = getStartTime(lastStartTimeHistorical,resolution=resolution)
+
+    print("newStartTimeMixed: " + str(newStartTimeMixed) + ", newStartTimeHistorical: " + str(newStartTimeHistorical))
+
+    # we only want to fetch records once, so take the min of the start times and use that
+    earlierStartTime = np.min([newStartTimeHistorical,newStartTimeMixed])
+    result = getHistoricalTrades("BTC-PERP",15,earlierStartTime)
+
+    print("length of result: " + str(len(result)) )
+    print("len of result[0]: " + str(len(result[0])))
+    startTimes = [convertSQLTimeToFTXTime(r["time"]) for r in result]
+
+    print("length of startTimes: " + str(len(startTimes)) + ", startTimes[0]: " + str(startTimes[0]) +", startTimes[len(startTimes)-1]: "+str(startTimes[len(startTimes)-1]))
+    startIndMixed = np.where(startTimes==earlierStartTime)[0][0]
+    startIndHistorical = np.where(startTimes==earlierStartTime)[0][0]
+
+    print("startIndMixed: " +str(startIndMixed) + ", startIndHistorical: " + str(startIndHistorical))
+    insertHistoricalTradesToSQL(conn,result[startIndMixed:],tableName1)
+    insertHistoricalTradesToSQL(conn,result[startIndHistorical:],tableName2)
+
 # asyncio.run(consumer())
 
 conn = connectPSQL()
 
-# note the +1 will never move it to the next candle
-# because it only adds 1 second and the min resolution is 15 seconds
-
-lastStartTimeMixed = getMostRecentTimestamp(conn,tableName1)
-lastStartTimeHistorical = getMostRecentTimestamp(conn,tableName2)
-
-newStartTimeMixed = getStartTime(lastStartTimeMixed,resolution = 15)
-newStartTimeHistorical = getStartTime(lastStartTimeHistorical,resolution=15)
-
-print("newStartTimeMixed: " + str(newStartTimeMixed) + ", newStartTimeHistorical: " + str(newStartTimeHistorical))
-
-# we only want to fetch records once, so take the min of the start times and use that
-earlierStartTime = np.min([newStartTimeHistorical,newStartTimeMixed])
-result = getHistoricalTrades("BTC-PERP",15,earlierStartTime)
-
-print("length of result: " + str(len(result)) )
-print("len of result[0]: " + str(len(result[0])))
-startTimes = [convertSQLTimeToFTXTime(r["time"]) for r in result]
-
-print("length of startTimes: " + str(len(startTimes)) + ", startTimes[0]: " + str(startTimes[0]) +", startTimes[len(startTimes)-1]: "+str(startTimes[len(startTimes)-1]))
-startIndMixed = np.where(startTimes==earlierStartTime)[0][0]
-startIndHistorical = np.where(startTimes==earlierStartTime)[0][0]
-
-print("startIndMixed: " +str(startIndMixed) + ", startIndHistorical: " + str(startIndHistorical))
-insertHistoricalTradesToSQL(conn,result[startIndMixed:],tableName1)
-insertHistoricalTradesToSQL(conn,result[startIndHistorical:],tableName2)
-
+updateSQL(conn, resolution = 15)
 conn.close()

@@ -164,17 +164,30 @@ def updateSQL(conn,resolution,market_name):
 # Define WebSocket callback functions
 def ws_message(ws, message):
     print("ws message received: " + str(message))
-    #data = message["data"]
-    #insertStreamingTradesToSQL(conn,data,tableNameStream)
+    data = message["data"]
+    insertStreamingTradesToSQL(conn,data,tableNameStream)
 
 def ws_open(ws):
-    print("websocket opened")
-    ws.send('{"op": "subscribe", "channel": "trades", "market": "' + market_name + '"}')
+    print("opening websocket")
+
+    openString = '{"op": "subscribe", "channel": "trades", "market": "BTC-PERP"}'
+
+    ws.send(openString)
+
+def ws_close(ws):
+    print("websocket closed")
+    ws.send('{"op": "unsubscribe", "channel": "trades", "market": "' + market_name + '"}')
+
+def on_ping(ws):
+    print("ping")
+
+def on_pong(ws):
+    print("pong")
 
 def ws_thread():
-    ws = websocket.WebSocketApp("wss://ftx.com/ws/", on_open = ws_open, on_message = ws_message)
+    ws = websocket.WebSocketApp("wss://ftx.com/ws/", on_open = ws_open, on_message = ws_message,on_ping=on_ping,on_pong=on_pong)
     print("websocket object: "  + str(dir(ws)))
-    ws.run_forever()
+    ws.run_forever(ping_interval=15,ping_timeout=10)
 
 # Continue other (non WebSocket) tasks in the main thread
 

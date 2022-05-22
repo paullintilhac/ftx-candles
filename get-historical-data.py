@@ -201,7 +201,7 @@ class CandleSocket:
                 vol = uniqueTPVols[i]
                 parseTradeTime = time.mktime(datetime.datetime.strptime(uniqueTime, "%Y-%m-%dT%H:%M:%S.%f%z").astimezone(timezone).timetuple())
 
-                print("time: " + str(uniqueTime) +", parsed time: " + str(parseTradeTime)+ ", price: " + str(price) + ", vol: " + str(vol))
+                print("time: " + str(uniqueTime) +", parsed time: " + str(parseTradeTime)+ ", price: " + str(uniquePrice) + ", vol: " + str(vol))
 
 
 

@@ -109,23 +109,7 @@ def insertHistoricalTradesToSQL(conn,result,tableName):
         cursor.execute(queryString)
         conn.commit()
 
-def insertStreamingTradesToSQL(conn,result,tableName):
-    numRecords = len(result)
-    cursor = conn.cursor()
-    print("numRecords: " + str(numRecords))
-    count=1
-    for i in range(numRecords):
-        row = result[i]
-        tradeTime = row["time"].split("T")
-        startDate = tradeTime[0]
-        startTime = tradeTime[1].split("+")[0]
-        parseTradeTime = time.mktime(datetime.datetime.strptime(startDate+" " + startTime, "%Y-%m-%d %H:%M:%S.%f").timetuple())
-        price = str(row["price"])+"::decimal(32)"
-        size = str(row["size"])+"::decimal(32)"
-        side = str(row["side"])+"::varchar(4)"
-        print("parseTradeTime: " + str(parseTradeTime) +", price: " + str(price) + ", size: " + str(size))
-        #print("count: " + str(count))
-        count += 1
+    
         
         # # insert into table populated by historical API + streaming API
         # valueString = ",".join([startTime,time,open,close,high,low,vol])
@@ -170,19 +154,50 @@ def updateSQL(conn,resolution,market_name):
 
 class CandleSocket:
     
-    def __init__(self, lastResult):
+    def __init__(self, lastResult,resolution):
         self.lastStartTime = lastResult["time"]
         self.lastOpen = lastResult["open"]
         self.lastClose = lastResult["close"]
         self.lastHigh = lastResult["high"]
         self.lastLow = lastResult["low"]
         self.lastVolume = lastResult["volume"]
+        self.resolution =resolution
     # Define WebSocket callback functions
 
     def ws_message(self,ws, message):
         message = json.loads(message)
         if message["type"]=="update":
-            insertStreamingTradesToSQL(conn,message["data"],tableNameStream)
+            result = message["data"]
+            numRecords = len(result)
+            cursor = conn.cursor()
+            print("numRecords: " + str(numRecords))
+            uniqueTimes=[]
+            uniquePrices=[]
+            totalVol = 0
+            for i in range(numRecords):
+                row = result[i]
+                if row["time"] not in uniqueTimes:
+                    uniqueTimes.append(row["time"])
+                if row["price"] not in uniquePrices:
+                    uniquePrices.append(row["price"])
+                totalVol +=totalVol
+            if (len(uniquePrices)>1):
+                raise Exception("event contained more than one unique price")
+            if (len(uniqueTimes)>1):
+                raise Exception("event contained more than one unique trade time")
+
+            tradeTime = uniqueTimes[0].split("T")
+            startDate = tradeTime[0]
+            startTime = tradeTime[1].split("+")[0]
+            parseTradeTime = time.mktime(datetime.datetime.strptime(startDate+" " + startTime, "%Y-%m-%d %H:%M:%S.%f").timetuple())
+            price = str(uniquePrices[0])+"::decimal(32)"
+            vol = str(totalVol)+"::decimal(32)"
+            print("parseTradeTime: " + str(parseTradeTime) +", price: " + str(price) + ", vol: " + str(totalVol))
+            print("lastStartTime: " + str(lastStartTime))
+
+            intervalsAhead = (parseTradeTime - lastStartTime )//resolution
+            print("intervalsAhead: " + str(intervalsAhead))
+            
 
     def ws_open(self,ws):
         #print("opening websocket")
@@ -196,30 +211,20 @@ class CandleSocket:
         ws = websocket.WebSocketApp("wss://ftx.com/ws/", on_open = self.ws_open, on_message = self.ws_message, on_error = self.on_error)
         print("websocket object: "  + str(dir(ws)))
         ws.run_forever(ping_interval=15,ping_timeout=10)
-        
+
     def run(self):
         while True:
             self.ws_thread()
 
 
-# Continue other (non WebSocket) tasks in the main thread
-
-async def consumer_handler(websocket: WebSocketClientProtocol) -> None:
-    print("running consumer handler")
-    async for message in websocket:
-        print("message: " + str(message))
-
-async def consumer() -> None:
-    async with websockets.connect("wss://ws.kraken.com/") as websocket:
-        await consumer_handler(websocket)
-
 # if __name__ == "main":
 #     asyncio.run(consumer())
 conn = connectPSQL()
 
-lastResult = updateSQL(conn, resolution = 15,market_name ="BTC-PERP")
+res = 15
+lastResult = updateSQL(conn, resolution = res,market_name ="BTC-PERP")
 print("last timestamp from historical update: " + str(lastResult["time"]))
-wsCandles = CandleSocket(lastResult)
+wsCandles = CandleSocket(lastResult,res)
 while True:
     wsCandles.run()
 conn.close()

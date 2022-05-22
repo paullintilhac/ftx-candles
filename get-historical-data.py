@@ -1,6 +1,7 @@
 import requests
 import time
 import datetime
+from datetime import timezone
 import psycopg2
 from websockets import WebSocketClientProtocol
 import asyncio
@@ -10,6 +11,7 @@ import websocket
 import _thread
 import time
 import json
+import pytz
 
 tableNameMixed = "highres_mixed"
 tableNameHist = "highres_historical"
@@ -94,7 +96,7 @@ def insertHistoricalTradesToSQL(conn,result,tableName):
         startTime = startDateTime[1].split("+")[0]
         newDateTime = str(startDate) + " " + str(startTime)
         startTime = "to_timestamp('"+newDateTime+"', 'YYYY-MM-DD HH24:MI:SS')"
-        print("startTime: " + startTime)
+        #print("startTime: " + startTime)
 
         time = str(int(row["time"]))+"::bigint"
         open = str(row["open"])+"::decimal(32)"
@@ -143,19 +145,23 @@ def updateSQL(conn,resolution,market_name):
         startIndHistorical = np.where(startTimes==earlierStartTime)[0][0]
 
         print("startIndMixed: " +str(startIndMixed) + ", startIndHistorical: " + str(startIndHistorical))
+        beforeTime = datetime.datetime.now()
         insertHistoricalTradesToSQL(conn,result[startIndMixed:],tableNameMixed)
         insertHistoricalTradesToSQL(conn,result[startIndHistorical:],tableNameHist)
+        afterTime = datetime.datetime.now()
+        diffTime = afterTime - beforeTime
+        print("time to insert historical trades into SQL: " + str(diffTime))
         lastTimeInd = np.where(startTimes == np.max(startTimes))[0][0]
         #print("startTimes: " +str(startTimes))
         lastResult = result[lastTimeInd]
-        #print("lastResult: " + str(lastResult))
+        print("lastResult: " + str(lastResult))
 
     return lastResult
 
 class CandleSocket:
     
     def __init__(self, lastResult,resolution):
-        self.lastStartTime = lastResult["time"]
+        self.lastStartTime = convertOutTimeToInTime(lastResult["time"])
         self.lastOpen = lastResult["open"]
         self.lastClose = lastResult["close"]
         self.lastHigh = lastResult["high"]
@@ -180,24 +186,31 @@ class CandleSocket:
                     uniqueTimes.append(row["time"])
                 if row["price"] not in uniquePrices:
                     uniquePrices.append(row["price"])
-                totalVol +=totalVol
+                totalVol += float(row["size"])
             if (len(uniquePrices)>1):
+                print("bad event:")
+                print(message)
                 raise Exception("event contained more than one unique price")
             if (len(uniqueTimes)>1):
+                print("bad event:")
+                print(message)
                 raise Exception("event contained more than one unique trade time")
-
+            
+            
             tradeTime = uniqueTimes[0].split("T")
             startDate = tradeTime[0]
             startTime = tradeTime[1].split("+")[0]
-            parseTradeTime = time.mktime(datetime.datetime.strptime(startDate+" " + startTime, "%Y-%m-%d %H:%M:%S.%f").timetuple())
+            timezone = pytz.timezone('America/New_York')
+            parseTradeTime =time.mktime(datetime.datetime.strptime(uniqueTimes[0], "%Y-%m-%dT%H:%M:%S.%f%z").astimezone(timezone).timetuple())
+
             price = str(uniquePrices[0])+"::decimal(32)"
             vol = str(totalVol)+"::decimal(32)"
             print("parseTradeTime: " + str(parseTradeTime) +", price: " + str(price) + ", vol: " + str(totalVol))
-            print("lastStartTime: " + str(lastStartTime))
+            print("lastStartTime: " + str(self.lastStartTime))
 
-            intervalsAhead = (parseTradeTime - lastStartTime )//resolution
+            intervalsAhead = (parseTradeTime - self.lastStartTime )//self.resolution
             print("intervalsAhead: " + str(intervalsAhead))
-            
+
 
     def ws_open(self,ws):
         #print("opening websocket")
@@ -209,7 +222,7 @@ class CandleSocket:
 
     def ws_thread(self):
         ws = websocket.WebSocketApp("wss://ftx.com/ws/", on_open = self.ws_open, on_message = self.ws_message, on_error = self.on_error)
-        print("websocket object: "  + str(dir(ws)))
+        #print("websocket object: "  + str(dir(ws)))
         ws.run_forever(ping_interval=15,ping_timeout=10)
 
     def run(self):
@@ -223,6 +236,10 @@ conn = connectPSQL()
 
 res = 15
 lastResult = updateSQL(conn, resolution = res,market_name ="BTC-PERP")
+cursor = conn.cursor()
+cursor.execute("select max(time) from " + tableNameMixed)
+resultTemp = cursor.fetchone()[0]
+print("last timestamp from sql query: " + str(resultTemp))
 print("last timestamp from historical update: " + str(lastResult["time"]))
 wsCandles = CandleSocket(lastResult,res)
 while True:

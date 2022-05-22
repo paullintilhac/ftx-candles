@@ -30,9 +30,8 @@ def connectPSQL():
     tables = cursor.fetchone()
     return conn
 
-def getHistoricalTrades(market_name,resolution:int,start_time):
+def getHistoricalTrades(market_name,resolution:int,start_time,end_time):
 
-    end_time = int(time.mktime(datetime.datetime.now().timetuple()))
     print("start time: " + str(start_time) + ", end time: " + str(end_time))
     
     finalResult = []
@@ -47,8 +46,10 @@ def getHistoricalTrades(market_name,resolution:int,start_time):
             "end_time": end_time
         }
         response = requests.get("https://ftx.com/api/markets/"+market_name+"/candles", params = data)
-        
+        print("response: " + str(response))
+        print(response.json())
         result = response.json()["result"]
+    
         if len(result)==0: break
         print("length of result: " + str(len(result)))
         print("result[0]: " + str(result[0]))
@@ -135,26 +136,32 @@ def updateSQL(conn,resolution,market_name):
 
     # we only want to fetch records once, so take the min of the start times and use that
     earlierStartTime = np.min([newStartTimeHistorical,newStartTimeMixed])
-    result = getHistoricalTrades(market_name,resolution,earlierStartTime)
     lastTime = lastStartTimeMixed
-    if len(result)>0:
-        print("length of result: " + str(len(result)) )
-        startTimes = [convertOutTimeToInTime(r["time"]) for r in result]
+    lastResult = {}
+    end_time = int(time.mktime(datetime.datetime.now().timetuple()))
 
-        startIndMixed = np.where(startTimes==earlierStartTime)[0][0]
-        startIndHistorical = np.where(startTimes==earlierStartTime)[0][0]
+    #note if we are making requet less than 15 seconds after last request, end_time<start_time
+    if end_time>earlierStartTime:
+        result = getHistoricalTrades(market_name,resolution,earlierStartTime,end_time)
+        
+        if len(result)>0:
+            print("length of result: " + str(len(result)) )
+            startTimes = [convertOutTimeToInTime(r["time"]) for r in result]
 
-        print("startIndMixed: " +str(startIndMixed) + ", startIndHistorical: " + str(startIndHistorical))
-        beforeTime = datetime.datetime.now()
-        insertHistoricalTradesToSQL(conn,result[startIndMixed:],tableNameMixed)
-        insertHistoricalTradesToSQL(conn,result[startIndHistorical:],tableNameHist)
-        afterTime = datetime.datetime.now()
-        diffTime = afterTime - beforeTime
-        print("time to insert historical trades into SQL: " + str(diffTime))
-        lastTimeInd = np.where(startTimes == np.max(startTimes))[0][0]
-        #print("startTimes: " +str(startTimes))
-        lastResult = result[lastTimeInd]
-        print("lastResult: " + str(lastResult))
+            startIndMixed = np.where(startTimes==earlierStartTime)[0][0]
+            startIndHistorical = np.where(startTimes==earlierStartTime)[0][0]
+
+            print("startIndMixed: " +str(startIndMixed) + ", startIndHistorical: " + str(startIndHistorical))
+            beforeTime = datetime.datetime.now()
+            insertHistoricalTradesToSQL(conn,result[startIndMixed:],tableNameMixed)
+            insertHistoricalTradesToSQL(conn,result[startIndHistorical:],tableNameHist)
+            afterTime = datetime.datetime.now()
+            diffTime = afterTime - beforeTime
+            print("time to insert historical trades into SQL: " + str(diffTime))
+            lastTimeInd = np.where(startTimes == np.max(startTimes))[0][0]
+            #print("startTimes: " +str(startTimes))
+            lastResult = result[lastTimeInd]
+            print("lastResult: " + str(lastResult))
 
     return lastResult
 
@@ -177,35 +184,28 @@ class CandleSocket:
             numRecords = len(result)
             cursor = conn.cursor()
             print("numRecords: " + str(numRecords))
-            uniqueTimes=[]
-            uniquePrices=[]
-            totalVol = 0
+            uniqueTPVols = {}
             for i in range(numRecords):
                 row = result[i]
-                if row["time"] not in uniqueTimes:
-                    uniqueTimes.append(row["time"])
-                if row["price"] not in uniquePrices:
-                    uniquePrices.append(row["price"])
-                totalVol += float(row["size"])
-            if (len(uniquePrices)>1):
-                print("bad event:")
-                print(message)
-                raise Exception("event contained more than one unique price")
-            if (len(uniqueTimes)>1):
-                print("bad event:")
-                print(message)
-                raise Exception("event contained more than one unique trade time")
-            
-            
-            tradeTime = uniqueTimes[0].split("T")
-            startDate = tradeTime[0]
-            startTime = tradeTime[1].split("+")[0]
-            timezone = pytz.timezone('America/New_York')
-            parseTradeTime =time.mktime(datetime.datetime.strptime(uniqueTimes[0], "%Y-%m-%dT%H:%M:%S.%f%z").astimezone(timezone).timetuple())
+                timePrice = (row["time"],row["price"])
+                if timePrice not in uniqueTPVols.keys():
+                    uniqueTPVols[timePrice] = 0
+                uniqueTPVols[timePrice] += float(row["size"])
 
-            price = str(uniquePrices[0])+"::decimal(32)"
-            vol = str(totalVol)+"::decimal(32)"
-            print("parseTradeTime: " + str(parseTradeTime) +", price: " + str(price) + ", vol: " + str(totalVol))
+            timezone = pytz.timezone('America/New_York')
+
+            print("length of uniqueTPVols: " + str(uniqueTPVols))
+            for i in uniqueTPVols:
+                uniqueTime = i[0]
+                uniquePrice = i[1]
+                vol = uniqueTPVols[i]
+                parseTradeTime = time.mktime(datetime.datetime.strptime(uniqueTime, "%Y-%m-%dT%H:%M:%S.%f%z").astimezone(timezone).timetuple())
+
+                print("time: " + str(uniqueTime) +", parsed time: " + str(parseTradeTime)+ ", price: " + str(price) + ", vol: " + str(vol))
+
+
+
+            
             print("lastStartTime: " + str(self.lastStartTime))
 
             intervalsAhead = (parseTradeTime - self.lastStartTime )//self.resolution

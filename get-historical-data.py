@@ -51,7 +51,7 @@ def getHistoricalTrades(market_name,resolution:int,start_time):
         print("length of result: " + str(len(result)))
         print("result[0]: " + str(result[0]))
         finalResult.insert(0,result)
-        firstTime = convertSQLTimeToFTXTime(result[0]["time"])
+        firstTime = convertOutTimeToInTime(result[0]["time"])
         print("first time: " + str(firstTime))
         end_time = firstTime-resolution
         count+=1
@@ -61,7 +61,7 @@ def getHistoricalTrades(market_name,resolution:int,start_time):
     #print("result: " + str(result))
     return finalResult
 
-def convertSQLTimeToFTXTime(sqlTime):
+def convertOutTimeToInTime(sqlTime):
     return int(sqlTime/1000)
 
 def getMostRecentTimestamp(conn,tableName):
@@ -71,7 +71,7 @@ def getMostRecentTimestamp(conn,tableName):
     print("result: " + str(result))
     resultTime = None
     if result is not None:
-        resultTime = convertSQLTimeToFTXTime(result)
+        resultTime = convertOutTimeToInTime(result)
     #print("resultTime: " + str(resultTime))
     return resultTime
 
@@ -113,10 +113,10 @@ def insertStreamingTradesToSQL(conn,result,tableName):
     numRecords = len(result)
     cursor = conn.cursor()
     print("numRecords: " + str(numRecords))
+    count=1
     for i in range(numRecords):
         row = result[i]
         tradeTime = row["time"].split("T")
-        print("made it here")
         startDate = tradeTime[0]
         startTime = tradeTime[1].split("+")[0]
         parseTradeTime = time.mktime(datetime.datetime.strptime(startDate+" " + startTime, "%Y-%m-%d %H:%M:%S.%f").timetuple())
@@ -124,8 +124,9 @@ def insertStreamingTradesToSQL(conn,result,tableName):
         size = str(row["size"])+"::decimal(32)"
         side = str(row["side"])+"::varchar(4)"
         print("parseTradeTime: " + str(parseTradeTime) +", price: " + str(price) + ", size: " + str(size))
-
-
+        #print("count: " + str(count))
+        count += 1
+        
         # # insert into table populated by historical API + streaming API
         # valueString = ",".join([startTime,time,open,close,high,low,vol])
         # queryString = "INSERT INTO " + tableName + " (startTime,time, open,close,high,low,volume) values (" +valueString + ") "
@@ -149,10 +150,10 @@ def updateSQL(conn,resolution,market_name):
     # we only want to fetch records once, so take the min of the start times and use that
     earlierStartTime = np.min([newStartTimeHistorical,newStartTimeMixed])
     result = getHistoricalTrades(market_name,resolution,earlierStartTime)
-
+    lastTime = lastStartTimeMixed
     if len(result)>0:
         print("length of result: " + str(len(result)) )
-        startTimes = [convertSQLTimeToFTXTime(r["time"]) for r in result]
+        startTimes = [convertOutTimeToInTime(r["time"]) for r in result]
 
         startIndMixed = np.where(startTimes==earlierStartTime)[0][0]
         startIndHistorical = np.where(startTimes==earlierStartTime)[0][0]
@@ -160,26 +161,45 @@ def updateSQL(conn,resolution,market_name):
         print("startIndMixed: " +str(startIndMixed) + ", startIndHistorical: " + str(startIndHistorical))
         insertHistoricalTradesToSQL(conn,result[startIndMixed:],tableNameMixed)
         insertHistoricalTradesToSQL(conn,result[startIndHistorical:],tableNameHist)
+        lastTimeInd = np.where(startTimes == np.max(startTimes))[0][0]
+        #print("startTimes: " +str(startTimes))
+        lastResult = result[lastTimeInd]
+        #print("lastResult: " + str(lastResult))
 
+    return lastResult
 
+class CandleSocket:
+    
+    def __init__(self, lastResult):
+        self.lastStartTime = lastResult["time"]
+        self.lastOpen = lastResult["open"]
+        self.lastClose = lastResult["close"]
+        self.lastHigh = lastResult["high"]
+        self.lastLow = lastResult["low"]
+        self.lastVolume = lastResult["volume"]
+    # Define WebSocket callback functions
 
-# Define WebSocket callback functions
-def ws_message(ws, message):
-    data = json.loads(message)["data"]
-    insertStreamingTradesToSQL(conn,data,tableNameStream)
+    def ws_message(self,ws, message):
+        message = json.loads(message)
+        if message["type"]=="update":
+            insertStreamingTradesToSQL(conn,message["data"],tableNameStream)
 
-def ws_open(ws):
-    print("opening websocket")
-    openString = '{"op": "subscribe", "channel": "trades", "market": "BTC-PERP"}'
-    ws.send(openString)
+    def ws_open(self,ws):
+        #print("opening websocket")
+        openString = '{"op": "subscribe", "channel": "trades", "market": "BTC-PERP"}'
+        ws.send(openString)
 
-def on_error(ws, err):
-    print("error encountered: ", err)
+    def on_error(self,ws, err):
+        print("error encountered: ", err)
 
-def ws_thread():
-    ws = websocket.WebSocketApp("wss://ftx.com/ws/", on_open = ws_open, on_message = ws_message, on_error = on_error)
-    print("websocket object: "  + str(dir(ws)))
-    ws.run_forever(ping_interval=15,ping_timeout=10)
+    def ws_thread(self):
+        ws = websocket.WebSocketApp("wss://ftx.com/ws/", on_open = self.ws_open, on_message = self.ws_message, on_error = self.on_error)
+        print("websocket object: "  + str(dir(ws)))
+        ws.run_forever(ping_interval=15,ping_timeout=10)
+        
+    def run(self):
+        while True:
+            self.ws_thread()
 
 
 # Continue other (non WebSocket) tasks in the main thread
@@ -197,7 +217,9 @@ async def consumer() -> None:
 #     asyncio.run(consumer())
 conn = connectPSQL()
 
-updateSQL(conn, resolution = 15,market_name ="BTC-PERP")
+lastResult = updateSQL(conn, resolution = 15,market_name ="BTC-PERP")
+print("last timestamp from historical update: " + str(lastResult["time"]))
+wsCandles = CandleSocket(lastResult)
 while True:
-    ws_thread()
+    wsCandles.run()
 conn.close()

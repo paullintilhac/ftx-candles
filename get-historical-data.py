@@ -4,6 +4,7 @@ import datetime
 from datetime import timezone
 import psycopg2
 from websockets import WebSocketClientProtocol
+import websockets
 import asyncio
 import numpy as np
 import itertools
@@ -184,9 +185,9 @@ class CandleSocket:
 
     # Define WebSocket callback functions
 
-    def ws_message(self,ws, message):
+    async def ws_message(self, message):
         message = json.loads(message)
-        print("message: " + str(message))
+        # print("message: " + str(message))
         if message["type"]=="update":
             result = message["data"]
             numRecords = len(result)
@@ -274,43 +275,22 @@ class CandleSocket:
                 self.currentVolume += sortedVols[j]
 
 
+
+    async def consumer(self) -> None:
+        async with websockets.connect("wss://ftx.com/ws/") as websocket:
+            await websocket.send(json.dumps({
+                "op":"subscribe",
+                "channel":"trades",
+                "market":"BTC-PERP"
+            }))
             
-
-            
-            
-
-            
+            async for message in websocket:
+                #print("message: " + str(message))
+                await self.ws_message(message)
 
 
-    def ws_open(self,ws):
-        #print("opening websocket")
-        openString = '{"op": "subscribe", "channel": "trades", "market": "BTC-PERP"}'
-        ws.send(openString)
-
-    def on_error(self,ws, err):
-        print("error encountered: ", err)
-    
-    def on_ping(self,ws,message):
-        print("ping! time: "+ str(datetime.datetime.now()))
-        print("ping message: " + str(message))
-    
-    def on_pong(self,ws,message):
-        print("pong! time: "+ str(datetime.datetime.now()))
-        print("pong message: " + str(message))
-
-    def ws_thread(self):
-        ws = websocket.WebSocketApp("wss://ftx.com/ws/",
-        on_open = self.ws_open,
-        on_message = self.ws_message,
-        on_error = self.on_error,
-        on_ping=self.on_ping,
-        on_pong=self.on_pong)
-        #print("websocket object: "  + str(dir(ws)))
-        ws.run_forever(ping_interval=15,ping_timeout=10)
-
-    def run(self):
-        while True:
-            self.ws_thread()
+    async def run_async(self):
+        asyncio.run(consumer())
 
 
 # if __name__ == "main":
@@ -326,5 +306,4 @@ print("last timestamp from sql query: " + str(resultTemp))
 print("last timestamp from historical update: " + str(lastResult["time"]))
 
 wsCandles = CandleSocket(lastResult,res,conn,tableNameMixed)
-while True:
-    wsCandles.run()
+asyncio.run(wsCandles.consumer())

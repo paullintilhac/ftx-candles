@@ -13,10 +13,10 @@ import time
 import json
 import pytz
 
-tableNameMixed = "highres_mixed"
-tableNameHist = "highres_historical"
-tableNameStream = "highres_stream"
-defaultStartDate = "2022-05-18"
+tableNameMixed = "mixed_15_sec"
+tableNameHist = "historical_15_sec"
+tableNameStream = "stream_15_sec"
+defaultStartDate = "2022-05-21"
 
 def connectPSQL():
     conn = psycopg2.connect(database="ftxtest", host='127.0.0.1')
@@ -47,9 +47,9 @@ def getHistoricalTrades(market_name,resolution:int,start_time,end_time):
         }
         response = requests.get("https://ftx.com/api/markets/"+market_name+"/candles", params = data)
         print("response: " + str(response))
-        print(response.json())
+        #print(response.json())
         result = response.json()["result"]
-    
+        # print("result: " + str(result))
         if len(result)==0: break
         print("length of result: " + str(len(result)))
         print("result[0]: " + str(result[0]))
@@ -67,16 +67,23 @@ def getHistoricalTrades(market_name,resolution:int,start_time,end_time):
 def convertOutTimeToInTime(sqlTime):
     return int(sqlTime/1000)
 
-def getMostRecentTimestamp(conn,tableName):
+def getMostRecentRecord(conn,tableName):
     cursor = conn.cursor()
-    cursor.execute("select max(time) from " + tableName)
-    result = cursor.fetchone()[0]
+    cursor.execute("select * from " + tableName + " where time = (select max(time) from " + tableName +")")
+    result = cursor.fetchone()
+    
     print("result: " + str(result))
-    resultTime = None
+    recent = {}
     if result is not None:
-        resultTime = convertOutTimeToInTime(result)
+        recent["time"]= convertOutTimeToInTime(result[1])
+        recent["open"] = result[2]
+        recent["close"] = result[3]
+        recent["high"] = result[4]
+        recent["low"] = result[5]
+        recent["volume"] = result[6]
+
     #print("resultTime: " + str(resultTime))
-    return resultTime
+    return recent
 
 
 # if there is a previous record, add one to the start time requested
@@ -97,38 +104,27 @@ def insertHistoricalTradesToSQL(conn,result,tableName):
         startTime = startDateTime[1].split("+")[0]
         newDateTime = str(startDate) + " " + str(startTime)
         startTime = "to_timestamp('"+newDateTime+"', 'YYYY-MM-DD HH24:MI:SS')"
-        #print("startTime: " + startTime)
 
         time = str(int(row["time"]))+"::bigint"
-        open = str(row["open"])+"::decimal(32)"
-        close = str(row["close"])+"::decimal(32)"
-        high = str(row["high"])+"::decimal(32)"
-        low = str(row["low"])+"::decimal(32)"
-        vol = str(row["volume"])+"::decimal(32)"
+        open = str(row["open"])+"::decimal(32,8)"
+        close = str(row["close"])+"::decimal(32,8)"
+        high = str(row["high"])+"::decimal(32,8)"
+        low = str(row["low"])+"::decimal(32,8)"
+        vol = str(row["volume"])+"::decimal(32,8)"
 
-        # insert into table populated by historical API + streaming API
         valueString = ",".join([startTime,time,open,close,high,low,vol])
         queryString = "INSERT INTO " + tableName + " (startTime,time, open,close,high,low,volume) values (" +valueString + ") "
         cursor.execute(queryString)
         conn.commit()
 
-    
-        
-        # # insert into table populated by historical API + streaming API
-        # valueString = ",".join([startTime,time,open,close,high,low,vol])
-        # queryString = "INSERT INTO " + tableName + " (startTime,time, open,close,high,low,volume) values (" +valueString + ") "
-        # cursor.execute(queryString)
-        # conn.commit()
-
 
 def updateSQL(conn,resolution,market_name):
 
-    # note the +1 will never move it to the next candle
-    # because it only adds 1 second and the min resolution is 15 seconds
+    lastStartRecordMixed = getMostRecentRecord(conn,tableNameMixed)
+    lastStartRecordHistorical = getMostRecentRecord(conn,tableNameHist)
 
-    lastStartTimeMixed = getMostRecentTimestamp(conn,tableNameMixed)
-    lastStartTimeHistorical = getMostRecentTimestamp(conn,tableNameHist)
-
+    lastStartTimeMixed = lastStartRecordMixed["time"] if lastStartRecordMixed else None
+    lastStartTimeHistorical = lastStartRecordHistorical["time"] if lastStartRecordHistorical else None
     newStartTimeMixed = getStartTime(lastStartTimeMixed,resolution = resolution)
     newStartTimeHistorical = getStartTime(lastStartTimeHistorical,resolution=resolution)
 
@@ -137,7 +133,7 @@ def updateSQL(conn,resolution,market_name):
     # we only want to fetch records once, so take the min of the start times and use that
     earlierStartTime = np.min([newStartTimeHistorical,newStartTimeMixed])
     lastTime = lastStartTimeMixed
-    lastResult = {}
+    lastResult = lastStartRecordMixed
     end_time = int(time.mktime(datetime.datetime.now().timetuple()))
 
     #note if we are making requet less than 15 seconds after last request, end_time<start_time
@@ -147,9 +143,16 @@ def updateSQL(conn,resolution,market_name):
         if len(result)>0:
             print("length of result: " + str(len(result)) )
             startTimes = [convertOutTimeToInTime(r["time"]) for r in result]
-
-            startIndMixed = np.where(startTimes==earlierStartTime)[0][0]
-            startIndHistorical = np.where(startTimes==earlierStartTime)[0][0]
+            print("earlierStartTime: " + str(earlierStartTime) + ", newStartTimeHistorical: " + str(newStartTimeHistorical) + ", equal? " + str(newStartTimeHistorical==earlierStartTime))
+            
+            # the following 5 lines of code should be easily replaced with np.where statements, 
+            # but for some VERY strange reason it isn't picking up the values properly, even though
+            # they are found by testing equality as implemented below. something to look into later
+            startIndHistorical = -1
+            startIndMixed = -1
+            for ind1 in range(len(startTimes)):
+                if startTimes[ind1] == newStartTimeHistorical: startIndHistorical = ind1
+                if startTimes[ind1] == newStartTimeMixed: startIndMixed = ind1
 
             print("startIndMixed: " +str(startIndMixed) + ", startIndHistorical: " + str(startIndHistorical))
             beforeTime = datetime.datetime.now()
@@ -167,23 +170,28 @@ def updateSQL(conn,resolution,market_name):
 
 class CandleSocket:
     
-    def __init__(self, lastResult,resolution):
-        self.lastStartTime = convertOutTimeToInTime(lastResult["time"])
-        self.lastOpen = lastResult["open"]
-        self.lastClose = lastResult["close"]
-        self.lastHigh = lastResult["high"]
-        self.lastLow = lastResult["low"]
-        self.lastVolume = lastResult["volume"]
-        self.resolution =resolution
+    def __init__(self, lastResult,resolution,conn,tableName):
+        self.currentStartTime = convertOutTimeToInTime(lastResult["time"])
+        self.currentOpen = lastResult["close"]
+        self.currentClose = lastResult["close"]
+        self.currentHigh = lastResult["close"]
+        self.currentLow = lastResult["close"]
+        self.currentVolume = 0
+        self.currentIntervalsAhead = 0
+        self.resolution = resolution
+        self.sqlConnection = conn
+        self.tableName = tableName
+
     # Define WebSocket callback functions
 
     def ws_message(self,ws, message):
         message = json.loads(message)
+        print("message: " + str(message))
         if message["type"]=="update":
             result = message["data"]
             numRecords = len(result)
-            cursor = conn.cursor()
             print("numRecords: " + str(numRecords))
+            cursor = conn.cursor()
             uniqueTPVols = {}
             for i in range(numRecords):
                 row = result[i]
@@ -191,25 +199,87 @@ class CandleSocket:
                 if timePrice not in uniqueTPVols.keys():
                     uniqueTPVols[timePrice] = 0
                 uniqueTPVols[timePrice] += float(row["size"])
-
             timezone = pytz.timezone('America/New_York')
-
-            print("length of uniqueTPVols: " + str(uniqueTPVols))
+            
+            #get unique price time records into ordered arrays
+            uniqueTimes = []
+            uniquePrices = []
+            vols = []
+            
+            
             for i in uniqueTPVols:
                 uniqueTime = i[0]
-                uniquePrice = i[1]
-                vol = uniqueTPVols[i]
-                parseTradeTime = time.mktime(datetime.datetime.strptime(uniqueTime, "%Y-%m-%dT%H:%M:%S.%f%z").astimezone(timezone).timetuple())
+                uniquePrices.append( i[1])
+                vols.append(uniqueTPVols[i])
+                uniqueTimes.append(time.mktime(datetime.datetime.strptime(uniqueTime, "%Y-%m-%dT%H:%M:%S.%f%z").astimezone(timezone).timetuple()))
+            
+            # get the aggregated records for each unique price-time sorted by time
+            # so that we can process them properly in case the cross a candle boundary
 
-                print("time: " + str(uniqueTime) +", parsed time: " + str(parseTradeTime)+ ", price: " + str(uniquePrice) + ", vol: " + str(vol))
+            sortedInds = np.argsort(uniqueTimes)
+            sortedTimes = [uniqueTimes[idx] for idx in sortedInds]
+            sortedPrices = [uniquePrices[idx] for idx in sortedInds]
+            sortedVols = [vols[idx] for idx in sortedInds] 
 
+            for j in range(len(sortedTimes)):
+
+                intervalsAhead = int((sortedTimes[j] - self.currentStartTime )//self.resolution)
+                print("intervals ahead: " + str(int(intervalsAhead)))
+                # if we have reached a new time interval ahead of the current one,
+                # consider the intervening intervals to be closed. Note this is a "lazy"
+                # method for generating new candles which avoids needing to use a separate
+                # process for generating intervals. If there are always trades in every interval
+                # it should be equivalent
+
+                if intervalsAhead>0:
+                    finalClose = self.currentClose
+                    finalOpen = self.currentOpen
+                    finalVol = self.currentVolume
+                    finalLow = self.currentLow
+                    finalHigh = self.currentHigh
+                    
+                    for i in range(intervalsAhead):
+                        imputedStartTime = int(self.currentStartTime + self.resolution*i)
+                        print("imputed start time: " + str(imputedStartTime) + ", open: " + str(finalOpen) + ", close: " + str(finalClose))
+                        # write records to sql
+                        startTimestamp = datetime.datetime.fromtimestamp(imputedStartTime, datetime.timezone.utc)
+                        
+                        startTimeString = "'"+str(startTimestamp)+"'"
+                        #print("startTime: " + startTime)
+
+                        timeString = str(imputedStartTime*1000)+"::bigint"
+                        openString = str(self.currentOpen)+"::decimal(32,8)"
+                        closeString = str(self.currentClose)+"::decimal(32,8)"
+                        highString = str(self.currentHigh)+"::decimal(32,8)"
+                        lowString = str(self.currentLow)+"::decimal(32,8)"
+                        volString = str(self.currentVolume)+"::decimal(32,8)"
+
+                        # insert into table populated by historical API + streaming API
+                        valueString = ",".join([startTimeString,timeString,openString,closeString,highString,lowString,volString])
+                        queryString = "INSERT INTO " + self.tableName + " (startTime,time, open,close,high,low,volume) values (" +valueString + ") on conflict (time) do nothing "
+                        print("queryString: " + str(queryString))
+                        cursor = self.sqlConnection.cursor()
+                        cursor.execute(queryString)
+                        self.sqlConnection.commit()
+
+                    print("new candle, closing previous " + str(intervalsAhead) + " candles.")
+                    self.currentOpen = sortedPrices[j]
+                    self.currentStartTime = self.currentStartTime + self.resolution*intervalsAhead
+                
+                self.currentClose = sortedPrices[j]
+                if sortedPrices[j] > self.currentHigh: 
+                    self.currentHigh = sortedPrices[j]
+                if sortedPrices[j] < self.currentLow:
+                    self.currentLow = sortedPrices[j]
+                self.currentVolume += sortedVols[j]
 
 
             
-            print("lastStartTime: " + str(self.lastStartTime))
 
-            intervalsAhead = (parseTradeTime - self.lastStartTime )//self.resolution
-            print("intervalsAhead: " + str(intervalsAhead))
+            
+            
+
+            
 
 
     def ws_open(self,ws):
@@ -219,9 +289,22 @@ class CandleSocket:
 
     def on_error(self,ws, err):
         print("error encountered: ", err)
+    
+    def on_ping(self,ws,message):
+        print("ping! time: "+ str(datetime.datetime.now()))
+        print("ping message: " + str(message))
+    
+    def on_pong(self,ws,message):
+        print("pong! time: "+ str(datetime.datetime.now()))
+        print("pong message: " + str(message))
 
     def ws_thread(self):
-        ws = websocket.WebSocketApp("wss://ftx.com/ws/", on_open = self.ws_open, on_message = self.ws_message, on_error = self.on_error)
+        ws = websocket.WebSocketApp("wss://ftx.com/ws/",
+        on_open = self.ws_open,
+        on_message = self.ws_message,
+        on_error = self.on_error,
+        on_ping=self.on_ping,
+        on_pong=self.on_pong)
         #print("websocket object: "  + str(dir(ws)))
         ws.run_forever(ping_interval=15,ping_timeout=10)
 
@@ -237,11 +320,11 @@ conn = connectPSQL()
 res = 15
 lastResult = updateSQL(conn, resolution = res,market_name ="BTC-PERP")
 cursor = conn.cursor()
-cursor.execute("select max(time) from " + tableNameMixed)
+cursor.execute("select max(startTime) from " + tableNameMixed)
 resultTemp = cursor.fetchone()[0]
 print("last timestamp from sql query: " + str(resultTemp))
 print("last timestamp from historical update: " + str(lastResult["time"]))
-wsCandles = CandleSocket(lastResult,res)
+
+wsCandles = CandleSocket(lastResult,res,conn,tableNameMixed)
 while True:
     wsCandles.run()
-conn.close()

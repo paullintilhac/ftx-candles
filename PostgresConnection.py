@@ -31,6 +31,7 @@ class PostgresConnection():
         hist.pair = mixed.pair and
         hist.res_secs = mixed.res_secs
         where mixed.is_streamed =B'1'
+        and mixed.close is not null
         on conflict on constraint diff_id do nothing
         -- where mixed.time > (select max(time) from hist) OR
         -- (select max(time) from hist) is null

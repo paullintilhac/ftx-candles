@@ -23,7 +23,7 @@ psql -d ftxtest -c "CREATE UNIQUE index \
 
 psql -d ftxtest -c "CREATE TABLE hist ( \
 	startTime timestamp NOT NULL,\
-	time BIGINT UNIQUE NOT NULL, \
+	time BIGINT NOT NULL, \
 	open DECIMAL (32,8) NOT NULL, \
 	close DECIMAL ( 32,8 )  NOT NULL, \
 	high DECIMAL (32,8) NOT NULL, \
@@ -41,7 +41,7 @@ psql -d ftxtest -c "CREATE UNIQUE index \
 
 psql -d ftxtest -c "CREATE TABLE diff ( \
 	startTime timestamp NOT NULL,\
-	time BIGINT UNIQUE NOT NULL, \
+	time BIGINT NOT NULL, \
 	open DECIMAL (32,8) NOT NULL, \
 	close DECIMAL ( 32,8 )  NOT NULL, \
 	high DECIMAL (32,8) NOT NULL, \

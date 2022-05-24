@@ -1,9 +1,10 @@
 #!/bin/bash 
 
 psql -c "CREATE DATABASE ftxtest"
+
 psql -d ftxtest -c "CREATE TABLE mixed ( \
 	startTime timestamp NOT NULL,\
-	time BIGINT UNIQUE NOT NULL, \
+	time BIGINT NOT NULL, \
 	open DECIMAL (32,8) NOT NULL, \
 	close DECIMAL ( 32,8 )  NOT NULL, \
 	high DECIMAL (32,8) NOT NULL, \
@@ -15,6 +16,10 @@ psql -d ftxtest -c "CREATE TABLE mixed ( \
 	is_streamed BIT NOT NULL, \
 	open_interest DECIMAL (32,8) \
     );"
+
+psql -d ftxtest -c "CREATE UNIQUE index \
+	time_pair_exchange_res \
+	ON mixed(time, pair, exchange, res_secs);"
 
 psql -d ftxtest -c "CREATE TABLE hist ( \
 	startTime timestamp NOT NULL,\
@@ -30,6 +35,10 @@ psql -d ftxtest -c "CREATE TABLE hist ( \
 	is_streamed BIT NOT NULL \
     );"
 
+psql -d ftxtest -c "CREATE UNIQUE index \
+	time_pair_exchange_res \
+	ON hist(time, pair, exchange, res_secs);"
+
 psql -d ftxtest -c "CREATE TABLE diff ( \
 	startTime timestamp NOT NULL,\
 	time BIGINT UNIQUE NOT NULL, \
@@ -42,3 +51,7 @@ psql -d ftxtest -c "CREATE TABLE diff ( \
 	exchange VARCHAR(16) NOT NULL, \
 	res_secs BIGINT NOT NULL \
     );"
+
+psql -d ftxtest -c "CREATE UNIQUE index \
+	time_pair_exchange_res \
+	ON diff(time, pair, exchange, res_secs);"

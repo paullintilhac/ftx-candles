@@ -18,7 +18,7 @@ psql -d ftxtest -c "CREATE TABLE mixed ( \
     );"
 
 psql -d ftxtest -c "CREATE UNIQUE index \
-	time_pair_exchange_res \
+	id_mixed \
 	ON mixed(time, pair, exchange, res_secs);"
 
 psql -d ftxtest -c "CREATE TABLE hist ( \
@@ -36,7 +36,7 @@ psql -d ftxtest -c "CREATE TABLE hist ( \
     );"
 
 psql -d ftxtest -c "CREATE UNIQUE index \
-	time_pair_exchange_res \
+	id_hist \
 	ON hist(time, pair, exchange, res_secs);"
 
 psql -d ftxtest -c "CREATE TABLE diff ( \
@@ -53,5 +53,5 @@ psql -d ftxtest -c "CREATE TABLE diff ( \
     );"
 
 psql -d ftxtest -c "CREATE UNIQUE index \
-	time_pair_exchange_res \
+	id_diff \
 	ON diff(time, pair, exchange, res_secs);"

@@ -6,7 +6,7 @@ psql -d ftxtest -c "CREATE TABLE mixed ( \
 	startTime timestamp NOT NULL,\
 	time BIGINT NOT NULL, \
 	open DECIMAL (32,8) NOT NULL, \
-	close DECIMAL ( 32,8 ) , \
+	close DECIMAL ( 32,8 ) NOT NULL , \
 	high DECIMAL (32,8) NOT NULL, \
     low DECIMAL (32,8) NOT NULL, \
     volume DECIMAL (32,8) NOT NULL, \

@@ -23,7 +23,7 @@ class CandleSocket:
             self.currentCloses.append(lastResults[i]["close"])
             self.currentHighs.append(lastResults[i]["high"])
             self.currentLows.append(lastResults[i]["low"])
-            self.currentVolumes.append(lastResults[i]["volume"])
+            self.currentVolumes.append(float(lastResults[i]["volume"]))
         self.resolutions = resolutions
         self.sqlConnection = conn
         self.mixedTableName = mixedTableName
@@ -64,7 +64,6 @@ class CandleSocket:
             sortedTimes = [uniqueTimes[idx] for idx in sortedInds]
             sortedPrices = [uniquePrices[idx] for idx in sortedInds]
             sortedVols = [vols[idx] for idx in sortedInds] 
-
             
             for k in range(len(self.resolutions)):
                 for j in range(len(sortedTimes)):

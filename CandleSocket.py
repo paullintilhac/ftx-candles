@@ -6,7 +6,7 @@ import time
 from datetime import timezone
 import datetime
 import numpy as np
-
+import requests
 class CandleSocket:
     
     def __init__(self, lastResult,resolution,conn,mixedTableName,market_name):
@@ -68,7 +68,10 @@ class CandleSocket:
                 newTickDatetime = None
                 # it should be equivalent
                 if intervalsAhead>0:
-                    
+                    response = requests.get("https://ftx.com/api/futures/"+self.market_name+"/stats")
+                    result = response.json()["result"]
+                    openInterest = float(result["openInterest"])
+                    print("open interest at close of new bar: " + str(openInterest))
                     for i in range(intervalsAhead):
                         # if we are only closing one bar, i.e. we did not "skip ahead" at all,
                         # then us the current ohlc info for this bar before saving
@@ -80,11 +83,13 @@ class CandleSocket:
                         finalVol = self.currentVolume
                         finalLow = self.currentLow
                         finalHigh = self.currentHigh
+                        finalOpenInterest = openInterest
                         if i>0: 
                             finalOpen = finalClose
                             finalHigh = finalClose
                             finalLow = finalClose
                             finalVol = 0
+                            finalOpenInterest = 0
                         imputedStartTime = int(self.currentStartTime + self.resolution*i)
                         # write records to sql
                         startTimestamp = datetime.datetime.fromtimestamp(imputedStartTime, datetime.timezone.utc)
@@ -102,9 +107,21 @@ class CandleSocket:
                         exchangeString = "'ftx'::varchar(16)"
                         resSecString = str(self.resolution) + "::bigint"
                         isStreamedString = "1::bit"
+                        openInterestString = str(openInterest) + "::decimal(32,8)"
                         # insert into table populated by historical API + streaming API
-                        valueString = ",".join([startTimeString,timeString,openString,closeString,highString,lowString,volString,pairString,exchangeString,resSecString,isStreamedString])
-                        queryString = "INSERT INTO " + self.mixedTableName + " (startTime,time, open,close,high,low,volume,pair,exchange,res_secs,is_streamed) values (" +valueString + ") on conflict (time) do nothing "
+                        valueString = ",".join([startTimeString,
+                                            timeString,
+                                            openString,
+                                            closeString,
+                                            highString,
+                                            lowString,
+                                            volString,
+                                            pairString,
+                                            exchangeString,
+                                            resSecString,
+                                            isStreamedString,
+                                            openInterestString])
+                        queryString = "INSERT INTO " + self.mixedTableName + " (startTime,time, open,close,high,low,volume,pair,exchange,res_secs,is_streamed,open_interest) values (" +valueString + ") on conflict (time) do nothing "
                         cursor = self.sqlConnection.cursor()
                         cursor.execute(queryString)
                         self.sqlConnection.commit()

@@ -12,7 +12,8 @@ psql -d ftxtest -c "CREATE TABLE mixed ( \
 	pair VARCHAR(16) NOT NULL, \
 	exchange VARCHAR(16) NOT NULL, \
 	res_secs BIGINT NOT NULL, \
-	is_streamed BIT NOT NULL \
+	is_streamed BIT NOT NULL, \
+	open_interest DECIMAL (32,8) \
     );"
 
 psql -d ftxtest -c "CREATE TABLE hist ( \
@@ -25,7 +26,7 @@ psql -d ftxtest -c "CREATE TABLE hist ( \
     volume DECIMAL (32,8) NOT NULL, \
 	pair VARCHAR(16) NOT NULL, \
 	exchange VARCHAR(16) NOT NULL, \
-	res_secs BIGINT NOT NULL,
+	res_secs BIGINT NOT NULL, \
 	is_streamed BIT NOT NULL \
     );"
 

@@ -21,7 +21,6 @@ class CandleHistorical:
 
     def getHistoricalTrades(self,start_time,end_time):
 
-        
         finalResult = []
         firstTime = end_time
         count=1

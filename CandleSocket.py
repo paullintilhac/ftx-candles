@@ -65,6 +65,7 @@ class CandleSocket:
                 # consider the intervening n-1 intervals to be closed. Note this is a "lazy"
                 # method for generating new candles which avoids needing to use a separate
                 # process for generating intervals. If there are always trades in every interval
+                newTickDatetime = None
                 # it should be equivalent
                 if intervalsAhead>0:
                     
@@ -89,7 +90,8 @@ class CandleSocket:
                         startTimestamp = datetime.datetime.fromtimestamp(imputedStartTime, datetime.timezone.utc)
                         
                         startTimeString = "'"+str(startTimestamp)+"'"
-
+                        if i==intervalsAhead-1:
+                            newTickDatetime = startTimeString
                         timeString = str(imputedStartTime*1000)+"::bigint"
                         openString = str(finalOpen)+"::decimal(32,8)"
                         closeString = str(finalClose)+"::decimal(32,8)"
@@ -107,7 +109,7 @@ class CandleSocket:
                         cursor.execute(queryString)
                         self.sqlConnection.commit()
 
-                    print("new candle, closing previous " + str(intervalsAhead) + " candles.")
+                    print("new candle at "+ str(newTickDatetime) +", closing previous " + str(intervalsAhead) + " candles.")
                     self.currentOpen = sortedPrices[j]
                     self.currentVolume = 0
                     self.currentStartTime = self.currentStartTime + self.resolution*intervalsAhead

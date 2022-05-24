@@ -47,13 +47,12 @@ class CandleHistorical:
 
     def getMostRecentRecord(self,tableName, res):
         cursor = self.sqlConnection.cursor()
-        print("res: " + str(res))
         cursor.execute("select * from " + tableName + " where time = (select max(time) from " + tableName +" where res_secs= "+str(res) + ") and res_secs = " + str(res))
         result = cursor.fetchone()
-        print("result for most recent record: " + str(result))
         recent = {}
         if result is not None:
-            recent["time"]= int(result[1]/1000)
+            recent["startTime"]=result[0]
+            recent["time"]= int(result[1])
             recent["open"] = result[2]
             recent["close"] = result[3]
             recent["high"] = result[4]
@@ -100,25 +99,26 @@ class CandleHistorical:
     def updateSQL(self):
         lastResults = []
 
-        for res in self.resolutions:
-            lastStartRecordMixed = self.getMostRecentRecord(self.mixedTableName,res)
-            lastStartRecordHistorical= self.getMostRecentRecord(self.historicalTableName,res)
-
-            #print("last start record historical: " + str(lastStartRecordHistorical))
-            lastStartTimeMixed = lastStartRecordMixed["time"] if lastStartRecordMixed else None
-            lastStartTimeHistorical = lastStartRecordHistorical["time"] if lastStartRecordHistorical else None
-            newStartTimeMixed = self.getStartTime(lastStartTimeMixed,res)
-            newStartTimeHistorical = self.getStartTime(lastStartTimeHistorical,res)
+        for k in range(len(self.resolutions)):
+            lastStartRecordMixed = self.getMostRecentRecord(self.mixedTableName,self.resolutions[k])
+            lastStartRecordHistorical= self.getMostRecentRecord(self.historicalTableName,self.resolutions[k])
+            lastStartTimeMixed = lastStartRecordMixed["time"]/1000 if lastStartRecordMixed else None
+            lastStartTimeHistorical = lastStartRecordHistorical["time"]/1000 if lastStartRecordHistorical else None
+            newStartTimeMixed = self.getStartTime(lastStartTimeMixed,self.resolutions[k])
+            newStartTimeHistorical = self.getStartTime(lastStartTimeHistorical,self.resolutions[k])
 
             # we only want to fetch records once, so take the min of the start times and use that
             earlierStartTime = np.min([newStartTimeHistorical,newStartTimeMixed])
             lastTime = lastStartTimeMixed
             lastResult = lastStartRecordMixed
+            lastResults.append(lastStartRecordMixed)
             end_time = int(time.mktime(datetime.datetime.now().timetuple()))
-
+            #print("end_time: " + str(end_time) + ", start time: " + str(earlierStartTime))
             # note if we are making requet less than 15 seconds after last request, end_time<start_time
             if end_time>earlierStartTime:
-                result = self.getHistoricalTrades(earlierStartTime,end_time,res)
+                #print("res: "  + str(self.resolutions[k]) + ", last start record mixed: " + str(lastStartRecordMixed))
+
+                result = self.getHistoricalTrades(earlierStartTime,end_time,self.resolutions[k])
                 
                 if len(result)>0:
                     startTimes = [int(r["time"]/1000) for r in result]
@@ -133,14 +133,14 @@ class CandleHistorical:
                         if startTimes[ind1] == newStartTimeMixed: startIndMixed = ind1
 
                     beforeTime = datetime.datetime.now()
-                    self.insertHistoricalTradesToSQL(result[startIndMixed:],self.mixedTableName,res)
-                    self.insertHistoricalTradesToSQL(result[startIndHistorical:],self.historicalTableName,res)
+                    self.insertHistoricalTradesToSQL(result[startIndMixed:],self.mixedTableName,self.resolutions[k])
+                    self.insertHistoricalTradesToSQL(result[startIndHistorical:],self.historicalTableName,self.resolutions[k])
                     afterTime = datetime.datetime.now()
                     diffTime = afterTime - beforeTime
                     lastTimeInd = np.where(startTimes == np.max(startTimes))[0][0]
                     #print("startTimes: " +str(startTimes))
                     lastResult = result[lastTimeInd]
-            lastResults.append(lastResult)
+                    lastResults[k] =lastResult
 
         return lastResults
 

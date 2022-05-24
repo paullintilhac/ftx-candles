@@ -163,6 +163,7 @@ class CandleSocket:
                 startTimeString = "'"+str(startTimestamp)+"'"
                 timeString = str(currentTime*1000)+"::bigint"
                 openString = str(self.currentOpens[k])+"::decimal(32,8)"
+                closeString = str(self.currentCloses[k])+"::decimal(32,8)"
                 highString = str(self.currentHighs[k])+"::decimal(32,8)"
                 lowString = str(self.currentLows[k])+"::decimal(32,8)"
                 volString = str(self.currentVolumes[k])+"::decimal(32,8)"
@@ -174,6 +175,7 @@ class CandleSocket:
                 valueString = ",".join([startTimeString,
                                     timeString,
                                     openString,
+                                    closeString,
                                     highString,
                                     lowString,
                                     volString,
@@ -182,9 +184,9 @@ class CandleSocket:
                                     resSecString,
                                     isStreamedString])
                 queryString = "INSERT INTO " + self.mixedTableName + \
-                " (startTime,time, open,high,low,volume,pair,exchange,res_secs,is_streamed) values (" \
+                " (startTime,time, open,close,high,low,volume,pair,exchange,res_secs,is_streamed) values (" \
                 +valueString + ") on conflict on constraint mixed_id do update "\
-                " set high=excluded.high, low=excluded.low, volume = Excluded.volume, is_streamed=B'1'"
+                " set close = excluded.close,high=excluded.high, low=excluded.low, volume = Excluded.volume, is_streamed=B'1'"
                 #print("query string: " + queryString)
                 cursor = self.sqlConnection.cursor()
                 cursor.execute(queryString)

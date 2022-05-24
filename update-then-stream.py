@@ -4,20 +4,17 @@ from PostgresConnection import PostgresConnection
 
 import asyncio
 
-historicalTableName = "hist"
-mixedTableName = "mixed"
+market_name = "BTC-PERP"
 resolutions = [60,3600,86400]
+
 print("updating historical candles...")
-
 PG = PostgresConnection()
+historicalCandles = CandleHistorical(PG.conn,resolutions = resolutions,market_name = market_name )
+lastResults = historicalCandles.updateSQL()
 
-historicalCandles = CandleHistorical(PG.conn,resolutions = resolutions,market_name = "BTC-PERP" )
+print("updating diff table after syncing historical data with latest streamed data...")
+PG.updateDiffTable()
 
-lastResult = historicalCandles.updateSQL()
-
-# print("updating diff table after syncing historical data with latest streamed data...")
-# PG.updateDiffTable()
-
-# print("beginning data stream...")
-# wsCandles = CandleSocket(lastResult,resolution,PG.conn,mixedTableName,"BTC-PERP")
-# asyncio.run(wsCandles.consumer())
+print("beginning data stream...")
+wsCandles = CandleSocket(lastResults,resolutions,PG.conn,market_name=market_name)
+asyncio.run(wsCandles.consumer())

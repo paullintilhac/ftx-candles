@@ -47,9 +47,10 @@ class CandleHistorical:
 
     def getMostRecentRecord(self,tableName, res):
         cursor = self.sqlConnection.cursor()
-        cursor.execute("select * from " + tableName + " where time = (select max(time) from " + tableName +") and res_secs = " + str(res))
+        print("res: " + str(res))
+        cursor.execute("select * from " + tableName + " where time = (select max(time) from " + tableName +" where res_secs= "+str(res) + ") and res_secs = " + str(res))
         result = cursor.fetchone()
-        
+        print("result for most recent record: " + str(result))
         recent = {}
         if result is not None:
             recent["time"]= int(result[1]/1000)

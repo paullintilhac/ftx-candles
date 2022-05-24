@@ -1,0 +1,8 @@
+In order to run this code, you need postgres installed
+
+Once installed, setup the database and table by running the shell script ./setup-postgres.sh
+
+Then, you can run `python3 update-then-stream.py`, which will fetch all data since the default start date in the three resoutions given, and up to the current date. After that, it will start the streaming process. 
+
+In order to view the table of diffs, you can either use the query in the postgresconnection class, or you can stop the streaming process and then run update-then-stream.py again, in which case it will auto-update the diff table.
+

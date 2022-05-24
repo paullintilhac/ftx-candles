@@ -23,7 +23,7 @@ class CandleSocket:
             self.currentCloses.append(lastResults[i]["close"])
             self.currentHighs.append(lastResults[i]["high"])
             self.currentLows.append(lastResults[i]["low"])
-            self.currentVolumes.append(0)
+            self.currentVolumes.append(lastResults[i]["volume"])
         self.resolutions = resolutions
         self.sqlConnection = conn
         self.mixedTableName = mixedTableName

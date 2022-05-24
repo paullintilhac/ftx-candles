@@ -91,7 +91,10 @@ class CandleHistorical:
             res_secs = str(res)+"::bigint"
             is_streamed = "0::bit"
             valueString = ",".join([startTime,time,open,close,high,low,vol,pair,exchange,res_secs,is_streamed])
-            queryString = "INSERT INTO " + tableName + " (startTime,time, open,close,high,low,volume,pair,exchange,res_secs,is_streamed) values (" +valueString + ") "
+            queryString = "INSERT INTO " + tableName + \
+            " (startTime,time, open,close,high,low,volume,pair,exchange,res_secs,is_streamed) values (" \
+            +valueString + ") on conflict on constraint "+tableName+"_id do update set" +\
+            " open = excluded.open, close = excluded.close, high=excluded.high, low=excluded.low, volume = excluded.volume " 
             cursor.execute(queryString)
             self.sqlConnection.commit()
 
@@ -106,7 +109,7 @@ class CandleHistorical:
             lastStartTimeHistorical = lastStartRecordHistorical["time"]/1000 if lastStartRecordHistorical else None
             newStartTimeMixed = self.getStartTime(lastStartTimeMixed,self.resolutions[k])
             newStartTimeHistorical = self.getStartTime(lastStartTimeHistorical,self.resolutions[k])
-
+            print("newStartTimeHistorical: " + str(newStartTimeHistorical) + ", newStartTimeMixed: " + str(newStartTimeMixed))
             # we only want to fetch records once, so take the min of the start times and use that
             earlierStartTime = np.min([newStartTimeHistorical,newStartTimeMixed])
             lastTime = lastStartTimeMixed

@@ -12,6 +12,8 @@ PG = PostgresConnection()
 historicalCandles = CandleHistorical(PG.conn,resolutions = resolutions,market_name = market_name )
 lastResults = historicalCandles.updateSQL()
 
+for lastResult in lastResults:
+    print("lastResult: " + str(lastResult["startTime"]))
 print("updating diff table after syncing historical data with latest streamed data...")
 PG.updateDiffTable()
 

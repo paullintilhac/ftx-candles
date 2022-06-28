@@ -1,0 +1,6 @@
+psycopg2
+pytz
+requests
+numpy
+websockets
+asyncio

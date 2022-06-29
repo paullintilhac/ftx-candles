@@ -1,6 +1,8 @@
-In order to run this code, you need postgres installed
+In order to run this code, you need postgres installed.
 
 Once installed, setup the database and table by running the shell script ./setup-postgres.sh
+
+Next, install all of the python dependencies by running `pip install -r requirements.txt`
 
 Then, you can run `python3 update-then-stream.py`, which will fetch all data since the default start date in the three resoutions given, and up to the current date. After that, it will start the streaming process. 
 
